@@ -2,20 +2,11 @@
 main.py 🌐
 -----------
 Entry point for the HyphaeOS FastAPI backend.
-
-Responsibilities:
-- Launch API app
-- Register API routes
-- Enable CORS
-- Configure logging
-- Auto-generate OpenAPI docs
 """
-from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
+import os
 import logging
 import time
 
@@ -24,7 +15,6 @@ from .core.utils.error_handlers import setup_error_handlers
 from .core.utils.logger import setup_logging
 from .core.utils.rate_limiter import rate_limit_middleware
 from .core.middleware.metrics_middleware import MetricsMiddleware
-
 
 # Import all routes
 from .api.routes import (
@@ -49,39 +39,41 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="HyphaeOS API",
-    description="""
-    🧠 HyphaeOS Multi-Agent Intelligence System API
-
-    ## Overview
-    HyphaeOS is a distributed multi-agent system that provides:
-    - 🤖 Multiple specialized AI agents
-    - 🔄 Agent chaining and workflows
-    - 🔐 Secure authentication and authorization
-    - 📊 System monitoring and metrics
-    - 🔌 Plugin architecture
-
-    ## Authentication
-    Most endpoints require authentication via JWT tokens. Include the token in the Authorization header:
-    ```
-    Authorization: Bearer <your_token>
-    ```
-
-    ## Rate Limiting
-    API requests are limited to 60 requests per minute per client IP.
-    """,
+    description="🧠 HyphaeOS Multi-Agent Intelligence System API",
     version=__version__,
-    docs_url=None,  # Disable default docs
-    redoc_url=None  # Disable default redoc
+    docs_url=None,
+    redoc_url=None
 )
 
-# CORS configuration
+# Secure CORS configuration
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["http://localhost:3000"]  # Default for development
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-Real-IP"
+    ],
+    max_age=3600,  # Cache preflight requests for 1 hour
+    expose_headers=["X-Request-ID"]
 )
+
+# Add security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # Rate limiting middleware
 app.middleware("http")(rate_limit_middleware)
@@ -160,7 +152,6 @@ app.include_router(state_routes.router, prefix="/api", tags=["state"])
 app.include_router(system_routes.router, prefix="/api", tags=["system"])
 app.include_router(user_routes.router, prefix="/api", tags=["users"])
 app.include_router(verify_routes.router, prefix="/api", tags=["verify"])
-
 
 # Mount static files (if needed)
 BASE_DIR = Path(__file__).resolve().parent
