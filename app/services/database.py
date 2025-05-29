@@ -1,29 +1,29 @@
-from sqlalchemy import create_engine
+# app/services/database.py
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
-import os
+from shared.config.env_loader import get_env_variable
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/hyphaeos.db")
+# Determine which DB to use via env
+DB_ENGINE = get_env_variable("DB_ENGINE", "sqlite")
 
-engine = create_engine(
+if DB_ENGINE == "postgres":
+    DATABASE_URL = get_env_variable("POSTGRES_URL", optional=False)
+else:
+    DATABASE_URL = get_env_variable("SQLITE_URL", optional=False)
+
+# Create async engine and session
+engine = create_async_engine(
     DATABASE_URL,
-    poolclass=QueuePool,
+    future=True,
+    echo=False,
     pool_size=5,
     max_overflow=10,
     pool_timeout=30,
-    pool_recycle=1800,  # Recycle connections after 30 minutes
-    pool_pre_ping=True  # Verify connection is still alive
 )
 
-SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False
-)
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
